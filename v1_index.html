@@ -1,0 +1,381 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Battle Arena Prototype</title>
+<style>
+  :root { --panel: rgba(12,16,24,.78); --ink: #e8edf5; --muted: #9aa6b8; --accent: #ffb020; }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; height: 100%; overflow: hidden; background: #0b0f16; color: var(--ink); font: 13px/1.4 system-ui, -apple-system, sans-serif; }
+  canvas { display: block; }
+  .panel { position: fixed; background: var(--panel); backdrop-filter: blur(6px); border: 1px solid rgba(255,255,255,.08); border-radius: 10px; padding: 10px 12px; }
+  #help { top: 12px; left: 12px; max-width: 290px; }
+  #help h1 { font-size: 15px; margin: 0 0 6px; color: var(--accent); letter-spacing: .5px; }
+  #help kbd { background: #222b3a; border: 1px solid #3a4558; border-radius: 4px; padding: 0 5px; font-size: 11px; }
+  #anims { top: 12px; right: 12px; width: 230px; max-height: calc(100% - 24px); overflow: auto; }
+  #anims h2, #res h2 { font-size: 12px; text-transform: uppercase; letter-spacing: 1px; color: var(--muted); margin: 0 0 6px; }
+  #anims button { display: block; width: 100%; text-align: left; margin: 2px 0; padding: 4px 8px; border-radius: 6px; border: 1px solid #2b3446; background: #161d2a; color: var(--ink); cursor: pointer; font-size: 12px; }
+  #anims button:hover { border-color: var(--accent); }
+  #anims button.on { background: var(--accent); color: #111; border-color: var(--accent); }
+  #res { bottom: 12px; left: 12px; max-width: 420px; font-size: 12px; }
+  #res a { color: #7cc4ff; }
+  #res ul { margin: 0; padding-left: 16px; }
+  #hud { bottom: 16px; right: 16px; font-size: 22px; font-weight: 700; }
+  #hud small { font-size: 11px; color: var(--muted); display: block; font-weight: 400; }
+  #cross { position: fixed; left: 50%; top: 50%; width: 18px; height: 18px; margin: -9px 0 0 -9px; pointer-events: none; }
+  #cross::before, #cross::after { content: ""; position: absolute; background: #fff; box-shadow: 0 0 2px #000; }
+  #cross::before { left: 8px; top: 0; width: 2px; height: 18px; }
+  #cross::after { top: 8px; left: 0; height: 2px; width: 18px; }
+  #loading { position: fixed; inset: 0; display: grid; place-items: center; font-size: 18px; background: #0b0f16; z-index: 10; }
+  .hide { display: none !important; }
+  @media (max-width: 700px) { #res, #anims { display: none; } #help { max-width: calc(100% - 24px); } }
+</style>
+</head>
+<body>
+<div id="loading">Loading soldier, weapons and arena…</div>
+<div id="cross"></div>
+<div id="help" class="panel">
+  <h1>BATTLE ARENA · STEP 1</h1>
+  <div><b>Click</b> the scene to lock the mouse (Esc to release)</div>
+  <div><kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd> move · <kbd>Shift</kbd> sprint</div>
+  <div><kbd>Mouse</kbd> look · <kbd>LMB</kbd> shoot · <kbd>RMB</kbd> aim (strafe)</div>
+  <div><kbd>Space</kbd> roll · <kbd>1</kbd> rifle <kbd>2</kbd> pistol · <kbd>H</kbd> hide panels</div>
+</div>
+<div id="anims" class="panel"><h2>Animation clips (click to preview)</h2><div id="animList"></div></div>
+<div id="res" class="panel">
+  <h2>Assets in use (all CC0 / free)</h2>
+  <ul>
+    <li>Soldier + 24 anims — <a href="https://poly.pizza/m/oAArCNHjFB" target="_blank">Quaternius · Soldier</a> (Toon Shooter Kit)</li>
+    <li>Assault rifle — <a href="https://poly.pizza/m/K2lXTYFSLC" target="_blank">Quaternius · Ultimate Guns Pack</a></li>
+    <li>Pistol — <a href="https://poly.pizza/m/Jyn9qex4ba" target="_blank">Quaternius · Ultimate Guns Pack</a></li>
+    <li>Engine — <a href="https://threejs.org" target="_blank">three.js r170</a>; arena is procedural</li>
+  </ul>
+</div>
+<div id="hud" class="panel"><small>AMMO</small><span id="ammo">30 / 30</span><small id="hits">Targets down: 0</small></div>
+
+<script type="importmap">
+{ "imports": {
+  "three": "https://cdn.jsdelivr.net/npm/three@0.170.0/build/three.module.js",
+  "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.170.0/examples/jsm/"
+} }
+</script>
+<script type="module">
+import * as THREE from 'three';
+import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
+import * as SkeletonUtils from 'three/addons/utils/SkeletonUtils.js';
+
+// ---------- renderer / scene ----------
+const renderer = new THREE.WebGLRenderer({ antialias: true });
+renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
+renderer.setSize(innerWidth, innerHeight);
+renderer.shadowMap.enabled = true;
+renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+renderer.toneMapping = THREE.ACESFilmicToneMapping;
+document.body.appendChild(renderer.domElement);
+
+const scene = new THREE.Scene();
+scene.background = new THREE.Color(0x9cc7e8);
+scene.fog = new THREE.Fog(0x9cc7e8, 60, 220);
+const camera = new THREE.PerspectiveCamera(60, innerWidth / innerHeight, 0.1, 500);
+
+scene.add(new THREE.HemisphereLight(0xdfefff, 0x5a4a32, 1.3));
+const sun = new THREE.DirectionalLight(0xfff1d6, 2.4);
+sun.position.set(40, 60, 25);
+sun.castShadow = true;
+sun.shadow.mapSize.set(2048, 2048);
+Object.assign(sun.shadow.camera, { left: -60, right: 60, top: 60, bottom: -60, near: 1, far: 200 });
+scene.add(sun, sun.target);
+
+// ---------- procedural arena ----------
+const solids = []; // for bullet hits + simple collision
+function groundTexture() {
+  const c = document.createElement('canvas'); c.width = c.height = 512;
+  const g = c.getContext('2d');
+  g.fillStyle = '#6f8f4e'; g.fillRect(0, 0, 512, 512);
+  for (let i = 0; i < 9000; i++) {
+    g.fillStyle = `hsl(${85 + Math.random() * 30},${30 + Math.random() * 25}%,${28 + Math.random() * 18}%)`;
+    g.fillRect(Math.random() * 512, Math.random() * 512, 2, 2 + Math.random() * 3);
+  }
+  const t = new THREE.CanvasTexture(c);
+  t.wrapS = t.wrapT = THREE.RepeatWrapping; t.repeat.set(60, 60); t.colorSpace = THREE.SRGBColorSpace;
+  return t;
+}
+const ground = new THREE.Mesh(new THREE.PlaneGeometry(400, 400), new THREE.MeshStandardMaterial({ map: groundTexture(), roughness: 1 }));
+ground.rotation.x = -Math.PI / 2; ground.receiveShadow = true; scene.add(ground);
+
+// dirt road
+const road = new THREE.Mesh(new THREE.PlaneGeometry(8, 400), new THREE.MeshStandardMaterial({ color: 0x9a8566, roughness: 1 }));
+road.rotation.x = -Math.PI / 2; road.position.y = 0.01; road.receiveShadow = true; scene.add(road);
+const road2 = road.clone(); road2.rotation.z = Math.PI / 2; road2.position.y = 0.012; scene.add(road2);
+
+function box(w, h, d, color, x, z, y = h / 2, ry = 0) {
+  const m = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), new THREE.MeshStandardMaterial({ color, roughness: .85 }));
+  m.position.set(x, y, z); m.rotation.y = ry; m.castShadow = m.receiveShadow = true;
+  scene.add(m); solids.push(m); return m;
+}
+// buildings with window strips
+const bColors = [0xc9b79c, 0xa8a29a, 0xd4c4a8, 0x8f8a80, 0xb59b7c];
+const rand = (() => { let s = 7; return () => (s = (s * 16807) % 2147483647) / 2147483647; })();
+for (let i = 0; i < 26; i++) {
+  const a = rand() * Math.PI * 2, r = 22 + rand() * 70;
+  const x = Math.cos(a) * r, z = Math.sin(a) * r;
+  if (Math.abs(x) < 7 || Math.abs(z) < 7) continue;
+  const w = 6 + rand() * 8, d = 6 + rand() * 8, h = 4 + rand() * 12;
+  const b = box(w, h, d, bColors[i % bColors.length], x, z, h / 2, rand() * .4);
+  const roof = new THREE.Mesh(new THREE.BoxGeometry(w + .4, .4, d + .4), new THREE.MeshStandardMaterial({ color: 0x5b4636 }));
+  roof.position.y = h / 2 + .2; roof.castShadow = true; b.add(roof);
+  for (let f = 1.6; f < h - 1; f += 3) {
+    const win = new THREE.Mesh(new THREE.BoxGeometry(w * .8, .9, d + .05), new THREE.MeshStandardMaterial({ color: 0x2b3a4a, roughness: .2, metalness: .5 }));
+    win.position.y = -h / 2 + f; b.add(win);
+  }
+}
+// crates / cover
+for (let i = 0; i < 40; i++) {
+  const x = (rand() - .5) * 120, z = (rand() - .5) * 120;
+  if (Math.hypot(x, z) < 6) continue;
+  const s = 1 + rand() * .6;
+  box(s, s, s, 0x8a6a3a, x, z, s / 2, rand() * Math.PI);
+  if (rand() > .6) box(s * .8, s * .8, s * .8, 0x7a5c30, x + .1, z, s + s * .4, rand());
+}
+// sandbag walls
+for (let i = 0; i < 10; i++) {
+  const a = i / 10 * Math.PI * 2;
+  box(5, 1.1, 1, 0xb8a47a, Math.cos(a) * 14, Math.sin(a) * 14, .55, -a + Math.PI / 2);
+}
+// trees
+const trunkM = new THREE.MeshStandardMaterial({ color: 0x5a3d24 }), leafM = new THREE.MeshStandardMaterial({ color: 0x2f6b34, flatShading: true });
+for (let i = 0; i < 120; i++) {
+  const a = rand() * Math.PI * 2, r = 30 + rand() * 150;
+  const t = new THREE.Group();
+  const trunk = new THREE.Mesh(new THREE.CylinderGeometry(.2, .3, 2), trunkM); trunk.position.y = 1;
+  const s = 1.5 + rand() * 1.5;
+  const leaf = new THREE.Mesh(new THREE.ConeGeometry(s, s * 2.6, 7), leafM); leaf.position.y = 2 + s * 1.2;
+  trunk.castShadow = leaf.castShadow = true; t.add(trunk, leaf);
+  t.position.set(Math.cos(a) * r, 0, Math.sin(a) * r); scene.add(t);
+}
+// distant hills
+for (let i = 0; i < 18; i++) {
+  const a = i / 18 * Math.PI * 2, s = 25 + rand() * 30;
+  const hill = new THREE.Mesh(new THREE.SphereGeometry(s, 12, 8), new THREE.MeshStandardMaterial({ color: 0x5f7d48, flatShading: true }));
+  hill.scale.y = .45; hill.position.set(Math.cos(a) * 200, -3, Math.sin(a) * 200); scene.add(hill);
+}
+
+// ---------- load assets ----------
+const loader = new GLTFLoader();
+const load = (u) => new Promise((res, rej) => loader.load(u, res, undefined, rej));
+const [soldierG, rifleG, pistolG] = await Promise.all([load('assets/soldier.glb'), load('assets/rifle.glb'), load('assets/pistol.glb')]);
+document.getElementById('loading').classList.add('hide');
+
+function prep(root) { root.traverse(o => { if (o.isMesh) { o.castShadow = true; o.receiveShadow = true; } }); return root; }
+function normalizeHeight(obj, h) {
+  const b = new THREE.Box3().setFromObject(obj); const s = h / (b.max.y - b.min.y);
+  obj.scale.multiplyScalar(s); return s;
+}
+const clipName = (c) => c.name.replace(/^.*\|/, '');
+
+// player
+const player = new THREE.Group(); scene.add(player);
+const model = prep(soldierG.scene); player.add(model);
+normalizeHeight(model, 1.8);
+const mixer = new THREE.AnimationMixer(model);
+const actions = {};
+for (const c of soldierG.animations) actions[clipName(c)] = mixer.clipAction(c);
+const once = ['Death', 'Roll', 'Gun_Shoot', 'Idle_Gun_Shoot', 'HitRecieve', 'HitRecieve_2', 'Interact', 'Kick_Left', 'Kick_Right', 'Punch_Left', 'Punch_Right', 'Sword_Slash', 'Wave'];
+once.forEach(n => { if (actions[n]) { actions[n].setLoop(THREE.LoopOnce); actions[n].clampWhenFinished = true; } });
+
+// weapons in right hand
+let hand = null; model.traverse(o => { if (o.isBone && o.name === 'Wrist.R' || o.name === 'WristR') hand = o; });
+function mountWeapon(src, len) {
+  const w = prep(src.clone(true));
+  const b = new THREE.Box3().setFromObject(w), size = b.getSize(new THREE.Vector3());
+  const longest = Math.max(size.x, size.y, size.z);
+  w.scale.multiplyScalar(len / longest);
+  const holder = new THREE.Group(); holder.add(w);
+  // undo the bone chain's world scale so the gun keeps real-world size
+  hand.updateWorldMatrix(true, false);
+  const ws = new THREE.Vector3(); hand.getWorldScale(ws); holder.scale.divideScalar(ws.x);
+  hand.add(holder); return holder;
+}
+const rifle = mountWeapon(rifleG.scene, 0.85);
+const pistol = mountWeapon(pistolG.scene, 0.25);
+// hand-tuned grip offsets (in hand-bone space, metres after unscale)
+const GRIP = {
+  rifle:  { pos: [-0.05, 0.07, 0], rot: [0, 0, Math.PI / 2] },
+  pistol: { pos: [-0.03, 0.07, 0], rot: [0, 0, Math.PI / 2] },
+};
+function applyGrip(h, g) { const ws = new THREE.Vector3(); hand.getWorldScale(ws); h.position.set(g.pos[0] / ws.x, g.pos[1] / ws.x, g.pos[2] / ws.x); h.rotation.set(...g.rot); }
+applyGrip(rifle, GRIP.rifle); applyGrip(pistol, GRIP.pistol);
+let weapon = 'rifle'; pistol.visible = false;
+window.GRIP = GRIP; window.regrip = () => { applyGrip(rifle, GRIP.rifle); applyGrip(pistol, GRIP.pistol); };
+
+// ---------- enemy target soldiers ----------
+const enemies = [];
+const tint = new THREE.Color(0xb04030);
+for (let i = 0; i < 8; i++) {
+  const e = SkeletonUtils.clone(soldierG.scene); prep(e);
+  e.traverse(o => { if (o.isMesh) { o.material = o.material.clone(); o.material.color.lerp(tint, .45); } });
+  e.scale.copy(model.scale);
+  const a = i / 8 * Math.PI * 2 + .3, r = 18 + (i % 3) * 6;
+  e.position.set(Math.cos(a) * r, 0, Math.sin(a) * r); e.lookAt(0, 0, 0);
+  scene.add(e);
+  const m = new THREE.AnimationMixer(e);
+  const acts = {}; for (const c of soldierG.animations) acts[clipName(c)] = m.clipAction(c);
+  acts.Death.setLoop(THREE.LoopOnce); acts.Death.clampWhenFinished = true;
+  const idle = [acts.Idle_Gun_Pointing, acts.Idle_Gun, acts.Wave][i % 3]; idle.play(); m.update(Math.random() * 3);
+  const hit = new THREE.Mesh(new THREE.CylinderGeometry(.4, .4, 1.8), new THREE.MeshBasicMaterial({ visible: false }));
+  hit.position.copy(e.position).setY(.9); scene.add(hit);
+  enemies.push({ e, m, acts, idle, hit, hp: 3, dead: false, t: 0 });
+}
+
+// ---------- animation state ----------
+let current = null, locked = null; // locked = one-shot or preview override
+function play(name, fade = .18) {
+  const a = actions[name]; if (!a || current === a) return;
+  a.reset().setEffectiveWeight(1).fadeIn(fade).play();
+  if (current) current.fadeOut(fade);
+  current = a;
+}
+function playOnce(name, then) {
+  locked = name; play(name, .1);
+  const done = (ev) => { if (ev.action === actions[name]) { mixer.removeEventListener('finished', done); locked = null; then && then(); } };
+  mixer.addEventListener('finished', done);
+}
+// animation list UI
+const list = document.getElementById('animList');
+let preview = null;
+Object.keys(actions).forEach(n => {
+  const b = document.createElement('button'); b.textContent = n;
+  b.onclick = (ev) => {
+    ev.stopPropagation();
+    document.querySelectorAll('#animList button').forEach(x => x.classList.remove('on'));
+    if (preview === n) { preview = null; return; }
+    preview = n; b.classList.add('on'); actions[n].reset(); current = null; play(n);
+  };
+  list.appendChild(b);
+});
+
+// ---------- input ----------
+const keys = {};
+addEventListener('keydown', e => {
+  keys[e.code] = true;
+  if (e.code === 'Space' && !locked) { preview = null; playOnce('Roll'); rollT = .9; }
+  if (e.code === 'Digit1') { weapon = 'rifle'; rifle.visible = true; pistol.visible = false; ammo = 30; maxAmmo = 30; updHud(); }
+  if (e.code === 'Digit2') { weapon = 'pistol'; rifle.visible = false; pistol.visible = true; ammo = 12; maxAmmo = 12; updHud(); }
+  if (e.code === 'KeyH') ['help', 'anims', 'res'].forEach(id => document.getElementById(id).classList.toggle('hide'));
+  if (e.code === 'KeyR') { ammo = maxAmmo; updHud(); }
+});
+addEventListener('keyup', e => keys[e.code] = false);
+let yaw = Math.PI, pitch = -0.15, firing = false, aiming = false;
+renderer.domElement.addEventListener('click', () => renderer.domElement.requestPointerLock());
+addEventListener('contextmenu', e => e.preventDefault());
+addEventListener('mousemove', e => {
+  if (document.pointerLockElement !== renderer.domElement) return;
+  yaw -= e.movementX * .0025; pitch = THREE.MathUtils.clamp(pitch - e.movementY * .002, -1.0, .6);
+});
+addEventListener('mousedown', e => { if (e.button === 0 && document.pointerLockElement) firing = true; if (e.button === 2) aiming = true; });
+addEventListener('mouseup', e => { if (e.button === 0) firing = false; if (e.button === 2) aiming = false; });
+
+// ---------- shooting ----------
+let ammo = 30, maxAmmo = 30, cooldown = 0, rollT = 0, downs = 0;
+const hud = document.getElementById('ammo');
+const updHud = () => { hud.textContent = `${ammo} / ${maxAmmo}`; document.getElementById('hits').textContent = `Targets down: ${downs}  ·  R reload`; };
+const ray = new THREE.Raycaster();
+const flash = new THREE.PointLight(0xffaa33, 0, 6); scene.add(flash);
+const tracers = [];
+function shoot() {
+  if (ammo <= 0) return;
+  ammo--; updHud();
+  cooldown = weapon === 'rifle' ? .1 : .28;
+  // aim ray from camera through crosshair
+  ray.setFromCamera(new THREE.Vector2(0, 0), camera);
+  const targets = [...solids, ground, ...enemies.filter(x => !x.dead).map(x => x.hit)];
+  const hit = ray.intersectObjects(targets, false)[0];
+  const end = hit ? hit.point : ray.ray.at(200, new THREE.Vector3());
+  const muzzle = new THREE.Vector3(); (weapon === 'rifle' ? rifle : pistol).getWorldPosition(muzzle);
+  const g = new THREE.BufferGeometry().setFromPoints([muzzle, end]);
+  const line = new THREE.Line(g, new THREE.LineBasicMaterial({ color: 0xffe08a, transparent: true }));
+  scene.add(line); tracers.push({ line, t: .06 });
+  flash.position.copy(muzzle); flash.intensity = 8;
+  if (hit) {
+    const spark = new THREE.Mesh(new THREE.SphereGeometry(.08), new THREE.MeshBasicMaterial({ color: 0xffcc66 }));
+    spark.position.copy(hit.point); scene.add(spark); tracers.push({ line: spark, t: .12 });
+    const en = enemies.find(x => x.hit === hit.object);
+    if (en && --en.hp <= 0) {
+      en.dead = true; downs++; updHud();
+      en.idle.fadeOut(.1); en.acts.Death.reset().fadeIn(.1).play(); en.t = 6;
+    } else if (en) { const h = en.acts.HitRecieve; h.setLoop(THREE.LoopOnce); h.reset().play(); setTimeout(() => h.fadeOut(.2), 300); }
+  }
+}
+
+// ---------- loop ----------
+const clock = new THREE.Clock();
+const camTarget = new THREE.Vector3(), tmp = new THREE.Vector3();
+function collide(pos) {
+  for (const s of solids) {
+    const b = new THREE.Box3().setFromObject(s).expandByScalar(.35);
+    if (pos.y < b.max.y && b.containsPoint(tmp.set(pos.x, Math.min(b.max.y - .01, .5), pos.z))) return true;
+  }
+  return false;
+}
+function tick() {
+  const dt = Math.min(clock.getDelta(), .05);
+  if (renderer.domElement.width !== Math.floor(innerWidth * renderer.getPixelRatio()) && innerWidth > 0) { camera.aspect = innerWidth / innerHeight; renderer.setSize(innerWidth, innerHeight); }
+  const f = (keys.KeyW ? 1 : 0) - (keys.KeyS ? 1 : 0), s = (keys.KeyD ? 1 : 0) - (keys.KeyA ? 1 : 0);
+  const moving = f || s, sprint = keys.ShiftLeft || keys.ShiftRight;
+  const fwd = new THREE.Vector3(-Math.sin(yaw), 0, -Math.cos(yaw)), right = new THREE.Vector3(-fwd.z, 0, fwd.x);
+  const dir = fwd.clone().multiplyScalar(f).add(right.clone().multiplyScalar(s)).normalize();
+  const combat = aiming || firing;
+  let speed = rollT > 0 ? 7 : moving ? (sprint && !combat ? 6.5 : combat ? 3.2 : 3.8) : 0;
+  if (rollT > 0) { rollT -= dt; if (!moving) dir.copy(new THREE.Vector3(0, 0, 1).applyQuaternion(player.quaternion)); }
+
+  if (speed && preview == null || rollT > 0) {
+    const next = player.position.clone().addScaledVector(dir, speed * dt);
+    if (!collide(next)) player.position.copy(next);
+  }
+  // facing
+  const faceYaw = combat ? yaw + Math.PI : (moving ? Math.atan2(dir.x, dir.z) : null);
+  if (faceYaw !== null && rollT <= 0) {
+    const q = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 1, 0), faceYaw);
+    player.quaternion.slerp(q, 1 - Math.pow(.0001, dt));
+  }
+  // animation selection
+  if (preview == null && !locked) {
+    if (!moving) play(firing ? 'Idle_Gun_Shoot' : (aiming ? 'Idle_Gun_Pointing' : 'Idle_Gun'));
+    else if (combat) {
+      if (f < 0 && !s) play('Run_Back'); else if (s > 0 && !f) play('Run_Right'); else if (s < 0 && !f) play('Run_Left');
+      else play(firing ? 'Run_Shoot' : 'Walk');
+    } else play(sprint ? 'Run' : 'Walk');
+    if (firing && !moving && current === actions.Idle_Gun_Shoot && !current.isRunning()) current.reset().play();
+  }
+  cooldown -= dt;
+  if (firing && cooldown <= 0 && rollT <= 0) shoot();
+  flash.intensity *= .6;
+  for (let i = tracers.length - 1; i >= 0; i--) { if ((tracers[i].t -= dt) <= 0) { scene.remove(tracers[i].line); tracers.splice(i, 1); } }
+
+  mixer.update(dt);
+  for (const en of enemies) {
+    en.m.update(dt);
+    if (en.dead && (en.t -= dt) <= 0) { // respawn
+      en.dead = false; en.hp = 3; en.acts.Death.fadeOut(.3); en.idle.reset().fadeIn(.3).play();
+    }
+  }
+  // third-person over-the-shoulder camera
+  const dist = aiming ? 2.4 : 4.2, shoulder = aiming ? .6 : .75;
+  camTarget.copy(player.position).setY(1.6).addScaledVector(right, shoulder);
+  const off = new THREE.Vector3(Math.sin(yaw) * Math.cos(pitch), -Math.sin(pitch), Math.cos(yaw) * Math.cos(pitch)).multiplyScalar(dist);
+  camera.position.lerp(tmp.copy(camTarget).add(off), 1 - Math.pow(.00001, dt));
+  camera.position.y = Math.max(camera.position.y, .3);
+  camera.lookAt(camTarget);
+  camera.fov += ((aiming ? 45 : 60) - camera.fov) * .15; camera.updateProjectionMatrix();
+
+  sun.position.copy(player.position).add(new THREE.Vector3(40, 60, 25)); sun.target.position.copy(player.position);
+  renderer.render(scene, camera);
+  requestAnimationFrame(tick);
+}
+updHud(); tick();
+addEventListener('resize', () => { camera.aspect = innerWidth / innerHeight; camera.updateProjectionMatrix(); renderer.setSize(innerWidth, innerHeight); });
+window.__dbg = { setView: (y, p) => { yaw = y; pitch = p; }, scene, camera, player, rifle, pistol, hand, actions, THREE };
+</script>
+</body>
+</html>

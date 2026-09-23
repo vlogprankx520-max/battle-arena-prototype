@@ -1,0 +1,120 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Battle Arena Prototype</title>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link href="https://fonts.googleapis.com/css2?family=Rajdhani:wght@500;600;700&display=swap" rel="stylesheet" />
+<style>
+  :root { --ink: #f2f2ee; --muted: rgba(242,242,238,.6); --accent: #f5b83d; --red: #e5484d; --panel: rgba(10,12,16,.55); }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; height: 100%; overflow: hidden; background: #0a0c10; color: var(--ink); font-family: Rajdhani, system-ui, sans-serif; user-select: none; }
+  canvas { display: block; }
+  .hide { display: none !important; }
+
+  #loading { position: fixed; inset: 0; z-index: 20; display: grid; place-content: center; gap: 14px; text-align: center;
+    background: radial-gradient(ellipse at 50% 60%, #1b2230, #07090c 70%); }
+  #loading h1 { margin: 0; font-size: 44px; letter-spacing: 8px; font-weight: 700; }
+  #loading h1 span { color: var(--accent); }
+  #loadtrack { width: min(420px, 80vw); height: 4px; background: rgba(255,255,255,.12); border-radius: 2px; overflow: hidden; }
+  #loadbar { height: 100%; width: 0; background: var(--accent); transition: width .2s; }
+  #loadtxt { color: var(--muted); font-size: 15px; letter-spacing: 2px; text-transform: uppercase; }
+
+  #overlay { position: fixed; inset: 0; z-index: 15; display: grid; place-content: center; text-align: center; background: rgba(5,7,10,.55); backdrop-filter: blur(3px); padding: 16px; }
+  #overlay h2 { margin: 0 0 6px; font-size: 38px; letter-spacing: 6px; }
+  #overlay p { margin: 4px 0; color: var(--muted); font-size: 17px; }
+  #overlay kbd { font-family: inherit; font-weight: 700; color: var(--ink); background: rgba(255,255,255,.1); border: 1px solid rgba(255,255,255,.25); border-radius: 4px; padding: 0 6px; }
+  #start { margin: 18px auto 10px; font: 700 20px Rajdhani, sans-serif; letter-spacing: 4px; padding: 12px 42px; border: 0; border-radius: 3px; background: var(--accent); color: #111; cursor: pointer; }
+  #start:hover { filter: brightness(1.1); }
+  #credits { margin: 14px auto 0; font-size: 13px; color: rgba(242,242,238,.45); max-width: 640px; line-height: 1.5; }
+
+  #cross { --gap: 12px; position: fixed; left: 50%; top: 50%; width: 0; height: 0; pointer-events: none; z-index: 5; }
+  #cross i { position: absolute; background: #fff; box-shadow: 0 0 2px rgba(0,0,0,.9); }
+  #cross i:nth-child(1) { width: 2px; height: 9px; left: -1px; top: calc(-1 * var(--gap) - 9px); }
+  #cross i:nth-child(2) { width: 2px; height: 9px; left: -1px; top: var(--gap); }
+  #cross i:nth-child(3) { height: 2px; width: 9px; top: -1px; left: calc(-1 * var(--gap) - 9px); }
+  #cross i:nth-child(4) { height: 2px; width: 9px; top: -1px; left: var(--gap); }
+  #cross b { position: absolute; width: 3px; height: 3px; left: -1.5px; top: -1.5px; background: #fff; border-radius: 50%; box-shadow: 0 0 2px #000; }
+  #cross.ads i { opacity: .35; }
+  #hitmark { position: fixed; left: 50%; top: 50%; width: 26px; height: 26px; margin: -13px 0 0 -13px; opacity: 0; pointer-events: none; z-index: 6; }
+  #hitmark::before, #hitmark::after { content: ""; position: absolute; left: 12px; top: -2px; width: 2px; height: 30px; background: #fff; transform: rotate(45deg); clip-path: polygon(0 0,100% 0,100% 35%,0 35%,0 65%,100% 65%,100% 100%,0 100%); }
+  #hitmark::after { transform: rotate(-45deg); }
+  #hitmark.show { animation: hm .28s ease-out; }
+  #hitmark.head::before, #hitmark.head::after { background: var(--red); }
+  @keyframes hm { 0% { opacity: 1; transform: scale(1.3); } 100% { opacity: 0; transform: scale(1); } }
+
+  .hud { position: fixed; z-index: 4; pointer-events: none; text-shadow: 0 1px 3px rgba(0,0,0,.8); }
+  #weapon { right: 28px; bottom: 26px; text-align: right; }
+  #weapon .name { font-size: 15px; letter-spacing: 3px; color: var(--muted); }
+  #weapon .mag { font-size: 46px; font-weight: 700; line-height: 1; }
+  #weapon .mag small { font-size: 22px; color: var(--muted); font-weight: 600; }
+  #weapon .mode { font-size: 13px; letter-spacing: 2px; color: var(--accent); }
+  #health { left: 50%; bottom: 26px; transform: translateX(-50%); width: min(380px, 60vw); }
+  #hptrack { height: 8px; background: rgba(0,0,0,.45); border: 1px solid rgba(255,255,255,.25); }
+  #hpfill { height: 100%; width: 100%; background: #e8e8e8; transition: width .15s, background .3s; }
+  #health .lbl { display: flex; justify-content: space-between; font-size: 13px; letter-spacing: 2px; color: var(--muted); margin-bottom: 3px; }
+  #compass { top: 14px; left: 50%; transform: translateX(-50%); width: min(560px, 80vw); height: 30px; overflow: hidden;
+    mask-image: linear-gradient(90deg, transparent, #000 20%, #000 80%, transparent); -webkit-mask-image: linear-gradient(90deg, transparent, #000 20%, #000 80%, transparent); }
+  #ctrack { position: absolute; top: 0; left: 0; height: 100%; }
+  #ctrack span { position: absolute; top: 4px; transform: translateX(-50%); font-size: 13px; color: var(--muted); }
+  #ctrack span.mid { font-size: 14px; color: var(--ink); }
+  #ctrack span.major { font-size: 20px; font-weight: 700; top: 1px; color: var(--ink); }
+  #bearingbox { top: 44px; left: 50%; transform: translateX(-50%); font-size: 15px; font-weight: 700; }
+  #bearingbox::before { content: "▾"; display: block; text-align: center; font-size: 10px; margin-top: -6px; color: var(--accent); }
+  #killsbox { top: 16px; right: 24px; font-size: 16px; letter-spacing: 2px; }
+  #killsbox b { font-size: 26px; margin-left: 6px; color: var(--accent); }
+  #feed { position: fixed; z-index: 4; top: 60px; right: 24px; display: flex; flex-direction: column; gap: 4px; align-items: flex-end; pointer-events: none; }
+  .kf { background: var(--panel); padding: 3px 10px; font-size: 15px; border-radius: 2px; animation: kfin .25s ease-out; }
+  .kf .gun { color: var(--muted); margin: 0 6px; font-size: 13px; letter-spacing: 1px; }
+  .kf .en { color: var(--red); } .kf .hs { color: var(--accent); font-size: 13px; }
+  @keyframes kfin { from { opacity: 0; transform: translateX(20px); } }
+  #controls { left: 20px; bottom: 22px; font-size: 13px; color: var(--muted); line-height: 1.6; letter-spacing: 1px; }
+  #controls b { color: var(--ink); }
+  #dmg { position: fixed; inset: 0; pointer-events: none; z-index: 3; opacity: 0; background: radial-gradient(ellipse at center, transparent 55%, rgba(170,0,0,.55) 100%); }
+  #dir { position: fixed; left: 50%; top: 50%; width: 180px; height: 180px; pointer-events: none; z-index: 3; opacity: 0; transform: translate(-50%,-50%); }
+  #dir::before { content: ""; position: absolute; left: 50%; top: 0; transform: translateX(-50%); border: 12px solid transparent; border-bottom: 22px solid rgba(229,72,77,.9); border-top: 0; }
+  #deadmsg { position: fixed; inset: 0; z-index: 8; display: grid; place-content: center; font-size: 42px; letter-spacing: 8px; font-weight: 700; background: rgba(60,0,0,.35); opacity: 0; pointer-events: none; transition: opacity .4s; }
+  #deadmsg.show { opacity: 1; }
+  #deadmsg small { display: block; font-size: 16px; letter-spacing: 3px; text-align: center; color: var(--muted); }
+  @media (max-width: 700px) { #controls { display: none; } #weapon .mag { font-size: 34px; } }
+</style>
+</head>
+<body>
+<div id="loading">
+  <h1>BATTLE <span>ARENA</span></h1>
+  <div id="loadtrack"><div id="loadbar"></div></div>
+  <div id="loadtxt">Loading…</div>
+</div>
+<div id="overlay" class="hide">
+  <h2>READY</h2>
+  <p><kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd> move &nbsp; <kbd>Shift</kbd> sprint &nbsp; <kbd>Mouse</kbd> look</p>
+  <p><kbd>LMB</kbd> fire &nbsp; <kbd>RMB</kbd> aim down sights &nbsp; <kbd>R</kbd> reload &nbsp; <kbd>M</kbd> mute</p>
+  <button id="start">DEPLOY</button>
+  <p style="font-size:14px">Headphones recommended · Esc to pause</p>
+  <div id="credits">Assets (free / CC0): Poly Haven HDRI, textures &amp; props · Smithsonian 3D-scanned cabin · OpenGameArt M4A1, An-2, barn &amp; firearm recordings · NASA Global Hawk · Kenney impact sounds · three.js Soldier (Mixamo) · ez-tree procedural trees</div>
+</div>
+
+<div id="cross"><i></i><i></i><i></i><i></i><b></b></div>
+<div id="hitmark"></div>
+<div id="dmg"></div><div id="dir"></div>
+<div id="deadmsg"><div>ELIMINATED<small>Redeploying…</small></div></div>
+
+<div id="compass" class="hud"></div>
+<div id="bearingbox" class="hud"><span id="bearing">0</span></div>
+<div id="killsbox" class="hud">KILLS<b id="kills">0</b></div>
+<div id="feed"></div>
+<div id="health" class="hud"><div class="lbl"><span>HEALTH</span><span>VEST LV.2</span></div><div id="hptrack"><div id="hpfill"></div></div></div>
+<div id="weapon" class="hud"><div class="name">M4A1 · 5.56</div><div class="mag"><span id="ammo">30</span> <small>/ <span id="reserve">150</span></small></div><div class="mode">AUTO</div></div>
+<div id="controls" class="hud"><b>RMB</b> aim · <b>LMB</b> fire · <b>R</b> reload · <b>Shift</b> sprint</div>
+
+<script type="importmap">
+{ "imports": {
+  "three": "https://cdn.jsdelivr.net/npm/three@0.170.0/build/three.module.js",
+  "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.170.0/examples/jsm/",
+  "@dgreenheck/ez-tree": "https://cdn.jsdelivr.net/npm/@dgreenheck/ez-tree@1.1.0/build/ez-tree.es.js"
+} }
+</script>
+<script type="module" src="js/main.js"></script>
+</body>
+</html>
